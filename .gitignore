@@ -37,5 +37,9 @@ next-env.d.ts
 prisma/*.db
 prisma/*.db-journal
 
+# Derived from prisma/schema.prisma by scripts/prisma-generate.mjs on
+# install/generate. Never edited by hand, so it is not committed.
+prisma/schema.postgres.prisma
+
 # environment
 .env

@@ -76,23 +76,25 @@ export async function runIntelligenceAnalysis(
 
   // Helper: get category affinity from customer's order history
   async function getCategoryAffinity(customerId: string): Promise<string[]> {
-    const result = await prisma.$queryRawUnsafe<{ category: string }[]>(
-      `SELECT DISTINCT p.category
-       FROM "OrderItem" oi
-       JOIN "Product" p ON oi."productId" = p."id"
-       JOIN "Order" o ON oi."orderId" = o."id"
-       WHERE o."customerId" = $1
-         AND o."merchantId" = $2
-         AND o.status = 'COMPLETED'`,
-      customerId,
-      merchantId
-    );
-    const raw = ((result as any)?.[0] as { category: string } | undefined)?.category;
-    const parsed = raw != null ? JSON.parse(String(raw)) : [];
-    if (Array.isArray(parsed)) {
-      return parsed.map((item: any) => item.category ?? "").filter((c: string) => c.trim().length > 0);
-    }
-    return [];
+    // Tagged template rather than `$queryRawUnsafe`: Prisma emits the correct
+    // placeholder syntax for whichever provider is active (`$1` on PostgreSQL,
+    // `?` on SQLite) and always binds the values as parameters. The previous
+    // `$1`/`$2` form was PostgreSQL-only (silently matching nothing on SQLite)
+    // and it treated the returned `category` string as JSON, which throws as
+    // soon as a real row comes back.
+    const rows = await prisma.$queryRaw<{ category: string }[]>`
+      SELECT DISTINCT p.category
+      FROM "OrderItem" oi
+      JOIN "Product" p ON oi."productId" = p."id"
+      JOIN "Order" o ON oi."orderId" = o."id"
+      WHERE o."customerId" = ${customerId}
+        AND o."merchantId" = ${merchantId}
+        AND o.status = 'COMPLETED'
+    `;
+
+    return rows
+      .map((row) => (row?.category ?? "").trim())
+      .filter((c) => c.length > 0);
   }
 
   // Step 2: Opportunity detection — rule-based on computed features

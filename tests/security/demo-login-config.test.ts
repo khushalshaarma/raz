@@ -37,11 +37,35 @@ describe("demo login configuration guard", () => {
     expect(isDemoLoginEnabled()).toBe(true);
   });
 
-  it("is hard-disabled in production regardless of the flag", () => {
+  it("stays disabled in production without the explicit production acknowledgement", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DEMO_LOGIN_ENABLED", "true");
+    vi.stubEnv("DEMO_LOGIN_ALLOW_PRODUCTION", "");
     expect(isDemoLoginEnabled()).toBe(false);
     expect(getDemoLoginAvailability().reason).toBe("DISABLED_IN_PRODUCTION");
+  });
+
+  it("is enabled in production only when BOTH keys are set", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEMO_LOGIN_ENABLED", "true");
+    vi.stubEnv("DEMO_LOGIN_ALLOW_PRODUCTION", "true");
+    expect(isDemoLoginEnabled()).toBe(true);
+  });
+
+  it("does not let the production acknowledgement alone enable demo access", () => {
+    // Must stay a two-key opt-in: neither flag is sufficient on its own.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEMO_LOGIN_ENABLED", "");
+    vi.stubEnv("DEMO_LOGIN_ALLOW_PRODUCTION", "true");
+    expect(isDemoLoginEnabled()).toBe(false);
+    expect(getDemoLoginAvailability().reason).toBe("DISABLED_BY_CONFIG");
+  });
+
+  it("does not require the production acknowledgement outside production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("DEMO_LOGIN_ENABLED", "true");
+    vi.stubEnv("DEMO_LOGIN_ALLOW_PRODUCTION", "");
+    expect(isDemoLoginEnabled()).toBe(true);
   });
 
   it("reports the disabled reason when not opted in", () => {
@@ -82,12 +106,21 @@ describe("production startup validation", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("flags DEMO_LOGIN_ENABLED=true as a production misconfiguration", () => {
+  it("flags DEMO_LOGIN_ENABLED without the production acknowledgement", () => {
+    // The silent-failure mode: configured, but the endpoint will 404 anyway.
     vi.stubEnv("DEMO_LOGIN_ENABLED", "true");
+    vi.stubEnv("DEMO_LOGIN_ALLOW_PRODUCTION", "");
     const check = validateProductionConfig().find((c) => c.name === "demo-login-disabled");
     expect(check).toBeDefined();
     expect(check!.passed).toBe(false);
     expect(check!.message).toMatch(/PRODUCTION/);
+  });
+
+  it("passes the demo check when both keys are set", () => {
+    vi.stubEnv("DEMO_LOGIN_ENABLED", "true");
+    vi.stubEnv("DEMO_LOGIN_ALLOW_PRODUCTION", "true");
+    const check = validateProductionConfig().find((c) => c.name === "demo-login-disabled");
+    expect(check!.passed).toBe(true);
   });
 
   it("passes the demo check when the flag is absent", () => {

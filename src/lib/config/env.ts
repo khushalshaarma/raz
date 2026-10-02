@@ -3,6 +3,9 @@ import { z } from "zod";
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  // Direct (unpooled) connection used by `prisma migrate` / `prisma db push`.
+  // Optional: only meaningful against a hosted PostgreSQL database.
+  DIRECT_URL: z.string().optional().default(""),
   JWT_SECRET: z.string().min(16, "JWT_SECRET must be at least 16 characters"),
   NEXT_PUBLIC_APP_NAME: z.string().default("GrowthOS"),
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),

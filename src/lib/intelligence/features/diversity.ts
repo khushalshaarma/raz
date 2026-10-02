@@ -20,8 +20,11 @@ export interface DiversityFeatures {
  * Get diversity features for a single customer
  */
 export async function getCustomerDiversity(customerId: string, merchantId: string): Promise<DiversityFeatures> {
-  // Use raw query to get category affinity data
-  const result = await prisma.$executeRawUnsafe<{ category: string; cnt: number }[]>(`
+  // Tagged template rather than `$executeRawUnsafe`: this is a SELECT, so it
+  // must use `$queryRaw` (`$executeRaw` returns an affected-row count, not rows,
+  // which is why the parsed array was always empty), and the tagged form binds
+  // the values as parameters instead of splicing them into the SQL text.
+  const rows = await prisma.$queryRaw<{ category: string; cnt: number }[]>`
     SELECT p.category, COUNT(*) as cnt
     FROM "OrderItem" oi
     JOIN "Product" p ON oi."productId" = p."id"
@@ -31,29 +34,12 @@ export async function getCustomerDiversity(customerId: string, merchantId: strin
       AND o.status = 'COMPLETED'
     GROUP BY p.category
     ORDER BY cnt DESC
-  `);
+  `;
 
-  // Parse the result - it returns a JSON array of {category, cnt} objects
-  let categories: string[] = [];
-  let productCount = 0;
-
-  try {
-    // result is Array<{category: string; cnt: number}>
-    const parsed = result ? JSON.parse(JSON.stringify(result)) : [];
-    if (Array.isArray(parsed)) {
-      categories = parsed
-        .map((item: any) => item?.category ?? null)
-        .filter((c: string | null) => c != null && c.trim().length > 0);
-      productCount = parsed.length;
-    }
-  } catch {
-    // Fallback if JSON parsing fails
-    categories = ["General"];
-    productCount = 1;
-  }
-
-  // Remove empty strings
-  categories = categories.filter((c) => c && c.trim().length > 0);
+  let categories: string[] = rows
+    .map((row) => (row?.category ?? "").trim())
+    .filter((c) => c.length > 0);
+  let productCount = rows.length;
 
   // If no categories found, return empty
   if (categories.length === 0) {

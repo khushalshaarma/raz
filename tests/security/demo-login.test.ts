@@ -114,12 +114,13 @@ describe("demo merchant entry (/api/auth/demo)", () => {
     }
   });
 
-  it("is hard-disabled in production even when the flag is true", async () => {
+  it("refuses in production when only DEMO_LOGIN_ENABLED is set", async () => {
     const POST = await importRoute();
     const { user } = await seedDemoMerchant();
     setEnv({
       NODE_ENV: "production",
       DEMO_LOGIN_ENABLED: "true",
+      DEMO_LOGIN_ALLOW_PRODUCTION: "",
       DEMO_MERCHANT_EMAIL: user.email,
       DEMO_MERCHANT_PASSWORD: DEMO_PASSWORD,
     });
@@ -127,6 +128,55 @@ describe("demo merchant entry (/api/auth/demo)", () => {
     const res = await POST(request());
     // Indistinguishable from "not available" so production cannot be probed.
     expect(res.status).toBe(404);
+    expect(cookieWrites).toHaveLength(0);
+  });
+
+  it("starts a real session in production when both keys are set", async () => {
+    // The Vercel deployment path: NODE_ENV=production plus both opt-in keys.
+    const POST = await importRoute();
+    const { user, merchant } = await seedDemoMerchant();
+    setEnv({
+      NODE_ENV: "production",
+      DEMO_LOGIN_ENABLED: "true",
+      DEMO_LOGIN_ALLOW_PRODUCTION: "true",
+      DEMO_MERCHANT_EMAIL: user.email,
+      DEMO_MERCHANT_PASSWORD: DEMO_PASSWORD,
+    });
+
+    const res = await POST(request());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.user.role).toBe("MERCHANT");
+    expect(body.user.merchantId).toBe(merchant!.id);
+    expect(cookieWrites).toHaveLength(1);
+
+    // Secure cookie in production, and still httpOnly.
+    expect(cookieWrites[0].options?.httpOnly).toBe(true);
+    expect(cookieWrites[0].options?.secure).toBe(true);
+
+    // Marked as demo mode so the dashboard can show the indicator.
+    expect(body.demo).toBe(true);
+    const claims = JSON.parse(
+      Buffer.from(cookieWrites[0].value.split(".")[1], "base64").toString("utf8")
+    );
+    expect(claims.demoMode).toBe(true);
+    expect(claims.role).toBe("MERCHANT");
+  });
+
+  it("never grants an admin session through the demo flow in production", async () => {
+    const POST = await importRoute();
+    const { user } = await seedDemoMerchant({ role: "ADMIN" });
+    setEnv({
+      NODE_ENV: "production",
+      DEMO_LOGIN_ENABLED: "true",
+      DEMO_LOGIN_ALLOW_PRODUCTION: "true",
+      DEMO_MERCHANT_EMAIL: user.email,
+      DEMO_MERCHANT_PASSWORD: DEMO_PASSWORD,
+    });
+
+    const res = await POST(request());
+    expect(res.status).toBe(500);
     expect(cookieWrites).toHaveLength(0);
   });
 
@@ -207,6 +257,32 @@ describe("demo merchant entry (/api/auth/demo)", () => {
     expect(cookieWrites[0].name).toBe("growthos_token");
     expect(cookieWrites[0].value.split(".")).toHaveLength(3);
     expect(cookieWrites[0].options?.httpOnly).toBe(true);
+  });
+
+  it("marks the issued session as demo mode but grants no extra role", async () => {
+    const POST = await importRoute();
+    const { user } = await seedDemoMerchant();
+    setEnv({
+      NODE_ENV: "development",
+      DEMO_LOGIN_ENABLED: "true",
+      DEMO_MERCHANT_EMAIL: user.email,
+      DEMO_MERCHANT_PASSWORD: DEMO_PASSWORD,
+    });
+
+    const res = await POST(request());
+    expect(res.status).toBe(200);
+
+    const claims = JSON.parse(
+      Buffer.from(cookieWrites[0].value.split(".")[1], "base64").toString("utf8")
+    );
+    // The display marker the dashboard banner reads...
+    expect(claims.demoMode).toBe(true);
+    // ...and nothing else changes. The claim set is identical to a real sign-in.
+    expect(claims.role).toBe("MERCHANT");
+    expect(claims.userId).toBe(user.id);
+    expect(Object.keys(claims).sort()).toEqual(
+      ["demoMode", "email", "exp", "iat", "merchantId", "role", "userId"].sort()
+    );
   });
 
   it("never returns the password, hash, or raw token in the response", async () => {

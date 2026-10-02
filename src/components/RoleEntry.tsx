@@ -12,7 +12,8 @@ type EntryTone = "error" | "info";
  * session and then navigates to the merchant dashboard, skipping the sign-in
  * form. It only navigates AFTER the server has confirmed the session was
  * created — a plain redirect would bounce straight back to /login because the
- * dashboard is guarded.
+ * dashboard is guarded. When the server reports the shortcut is not available
+ * (HTTP 404), the UI offers an explicit Sign In link rather than dead-ending.
  *
  * Admin and Customer deliberately keep their existing behaviour (plain links to
  * `/admin` and `/customer/shop`, which the middleware sends to the normal
@@ -22,6 +23,9 @@ export function RoleEntry() {
   const [merchantStatus, setMerchantStatus] = useState<EntryTone | null>(null);
   const [merchantMessage, setMerchantMessage] = useState("");
   const [startingDemo, setStartingDemo] = useState(false);
+  // Set when the server reports the demo shortcut is not available, so the UI
+  // can offer a real Sign In action instead of leaving a dead button.
+  const [demoUnavailable, setDemoUnavailable] = useState(false);
   // A ref guard (not just state) so two rapid clicks in the same tick cannot
   // both fire a request and mint two sessions.
   const inFlight = useRef(false);
@@ -52,11 +56,19 @@ export function RoleEntry() {
 
       if (!res.ok) {
         setMerchantStatus("error");
-        setMerchantMessage(
-          res.status === 404
-            ? "Demo merchant access is not enabled on this server. Use Sign In."
-            : data?.error || `Could not start the demo session (HTTP ${res.status}).`
-        );
+        // 404 is the endpoint's deliberate "not available here" answer. Surface
+        // an explicit Sign In action so this is a clear fallback rather than a
+        // dead end.
+        if (res.status === 404) {
+          setDemoUnavailable(true);
+          setMerchantMessage(
+            "Demo merchant access is not enabled on this server. Use Sign In."
+          );
+        } else {
+          setMerchantMessage(
+            data?.error || `Could not start the demo session (HTTP ${res.status}).`
+          );
+        }
         return;
       }
 
@@ -120,6 +132,14 @@ export function RoleEntry() {
           }`}
         >
           {merchantMessage}
+          {demoUnavailable && (
+            <Link
+              href="/login"
+              className="ml-2 underline underline-offset-2 hover:text-growthos-text"
+            >
+              Go to Sign In
+            </Link>
+          )}
         </div>
       )}
     </div>

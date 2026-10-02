@@ -14,6 +14,14 @@ export interface JWTPayload {
   email: string;
   role: "MERCHANT" | "CUSTOMER" | "ADMIN";
   merchantId?: string;
+  /**
+   * True when the session was started through the demo merchant shortcut.
+   *
+   * This is a DISPLAY marker only. It grants no additional permission: the
+   * claims above are identical to a normal password sign-in, and middleware and
+   * the merchant guards read only `role` and `merchantId`.
+   */
+  demoMode?: boolean;
 }
 
 export async function hashPassword(password: string): Promise<string> {

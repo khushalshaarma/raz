@@ -75,6 +75,8 @@ export async function POST(_request: NextRequest) {
       email: user.email,
       role: "MERCHANT",
       merchantId: merchant.id,
+      // Display-only marker so the dashboard can show a "demo mode" banner.
+      demoMode: true,
     });
     await setAuthCookie(token);
 
@@ -86,7 +88,9 @@ export async function POST(_request: NextRequest) {
         name: user.name,
         role: "MERCHANT",
         merchantId: merchant.id,
+        demoMode: true,
       },
+      demo: true,
       redirectTo: "/merchant/dashboard",
     });
   } catch (error) {

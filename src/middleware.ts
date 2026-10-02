@@ -22,8 +22,8 @@ const PUBLIC_ROUTES = [
   "/api/auth/register",
   // Demo merchant entry. Public because it mints its own session from
   // server-side configuration; the route itself refuses to run unless demo
-  // login is explicitly enabled and never in production. It stays subject to
-  // the API rate limiter below.
+  // login is explicitly enabled and, in production, additionally acknowledged.
+  // It stays subject to the API rate limiter below.
   "/api/auth/demo",
   "/api/system/health",
 ];
