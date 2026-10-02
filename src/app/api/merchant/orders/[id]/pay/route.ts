@@ -29,13 +29,29 @@ export async function POST(
       return badRequestResponse("Order already paid");
     }
 
+    // A cancelled/failed attempt may be retried, but a settled order may not.
+    if (order.status === "CANCELLED") {
+      return badRequestResponse("Order is cancelled and cannot be paid");
+    }
+
     const config = getRazorpayConfig();
 
+    // The amount is authoritative server-side: the order total in minor units
+    // (paise). Razorpay expects the same minor-unit integer, so no conversion
+    // and no rounding happens here.
     const razorpayOrder = await createRazorpayOrder({
       amountMinor: order.totalMinor,
-      currency: "INR",
+      currency: order.currency,
       receipt: order.id,
       notes: { merchantOrderId: order.id },
+    });
+
+    // Persist the provider order id against the application order so payment
+    // verification can prove the razorpay_order_id presented by the browser was
+    // minted for THIS order rather than for another order of the same amount.
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { razorpayOrderId: razorpayOrder.id },
     });
 
     return successResponse({

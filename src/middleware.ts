@@ -84,7 +84,10 @@ export async function middleware(request: NextRequest) {
   if (!token) {
     if (pathname.startsWith("/api/")) {
       return applySecurityHeaders(
-        NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+        NextResponse.json(
+          { error: "Unauthorized", code: "SESSION_MISSING", sessionInvalid: true },
+          { status: 401 }
+        )
       );
     }
     return applySecurityHeaders(NextResponse.redirect(new URL("/login", request.url)));
@@ -93,6 +96,24 @@ export async function middleware(request: NextRequest) {
   const payload = await verifyToken(token);
 
   if (!payload) {
+    // A token that is present but invalid/expired must never redirect an API
+    // caller to the /login HTML page. `fetch()` follows the redirect and hands
+    // back markup, so `await res.json()` throws a SyntaxError and the client
+    // cannot distinguish "session expired" from a real transport failure — this
+    // was the source of the misleading "Network error during verification"
+    // after Razorpay Checkout. API routes get a JSON 401 instead; only
+    // navigations are redirected.
+    if (pathname.startsWith("/api/")) {
+      const apiResponse = applySecurityHeaders(
+        NextResponse.json(
+          { error: "Unauthorized", code: "SESSION_EXPIRED", sessionInvalid: true },
+          { status: 401 }
+        )
+      );
+      apiResponse.cookies.delete("growthos_token");
+      return apiResponse;
+    }
+
     const response = applySecurityHeaders(NextResponse.redirect(new URL("/login", request.url)));
     response.cookies.delete("growthos_token");
     return response;

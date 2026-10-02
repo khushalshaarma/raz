@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
@@ -21,6 +21,17 @@ export default function OrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [paymentNotice, setPaymentNotice] = useState<{ tone: "error" | "info" | "success"; message: string } | null>(null);
+  // Retained so verification can be retried WITHOUT re-opening Razorpay
+  // Checkout: the customer already paid, only our verification round-trip failed.
+  const pendingPaymentRef = useRef<{
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  } | null>(null);
+  // Mirrors the ref so the UI re-renders when a payment becomes pending.
+  const [hasPendingPayment, setHasPendingPayment] = useState(false);
 
   const fetchOrder = async () => {
     if (!id) return;
@@ -70,14 +81,119 @@ export default function OrderDetailPage() {
     }
   }
 
+  /**
+   * Verify a Razorpay payment with the backend.
+   *
+   * The Razorpay success callback is NOT proof of payment — only this server
+   * round-trip, which checks the signature against the key secret and reads the
+   * authoritative amount/status from Razorpay, is. Distinguishes transport
+   * failures (retryable, payment id preserved) from validation/signature
+   * failures (not retryable) so the customer is never asked to pay twice for a
+   * payment that only our verification round-trip lost.
+   */
+  const verifyPayment = useCallback(async () => {
+    const pending = pendingPaymentRef.current;
+    if (!pending || !id) return;
+
+    setVerifying(true);
+    try {
+      const res = await fetch("/api/merchant/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          merchantOrderId: id,
+          razorpay_order_id: pending.razorpay_order_id,
+          razorpay_payment_id: pending.razorpay_payment_id,
+          razorpay_signature: pending.razorpay_signature,
+        }),
+      });
+
+      // Safely parse the body regardless of content type.
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+
+      // Session lost / not authenticated: the middleware would previously have
+      // redirected to the HTML login page here, making this look like a network
+      // error. It now returns a JSON 401 and we can say so precisely.
+      if (res.status === 401) {
+        setPaymentNotice({
+          tone: "error",
+          message:
+            data?.message ||
+            "Your session expired. Your payment is saved with Razorpay — sign in again and use “Retry verification” (do not pay again).",
+        });
+        return;
+      }
+
+      if (!res.ok) {
+        const message =
+          data?.message ||
+          data?.error ||
+          `Verification failed (HTTP ${res.status}).`;
+        setPaymentNotice({
+          tone: "error",
+          message: data?.retryable
+            ? `${message} Your payment is recorded with Razorpay — use “Retry verification”, do not pay again.`
+            : message,
+        });
+        return;
+      }
+
+      if (data?.captured === false) {
+        // Verification itself succeeded, so there is nothing left to retry — the
+        // payment is recorded with Razorpay and will settle via webhook.
+        pendingPaymentRef.current = null;
+        setHasPendingPayment(false);
+        setPaymentNotice({
+          tone: "info",
+          message: data.message || "Payment received but not yet captured. It will update once Razorpay confirms capture.",
+        });
+        await fetchOrder();
+        return;
+      }
+
+      // Backend confirmed the payment. Only now is it safe to clear the pending
+      // payment and report success.
+      pendingPaymentRef.current = null;
+      setHasPendingPayment(false);
+      setPaymentNotice({ tone: "success", message: "Payment verified and recorded." });
+      await fetchOrder();
+    } catch {
+      // True transport failure (offline, server unreachable). Keep the payment
+      // id so the customer can retry verification later without paying again.
+      setPaymentNotice({
+        tone: "error",
+        message:
+          "Could not reach the server to verify the payment. Your payment is recorded with Razorpay — use “Retry verification”, do not pay again.",
+      });
+    } finally {
+      setVerifying(false);
+    }
+  }, [id]);
+
   async function handlePayNow() {
-    if (!order || !id) return;
+    if (!order || !id || paying) return;
     setPaying(true);
+    setPaymentNotice(null);
     try {
       const res = await fetch(`/api/merchant/orders/${id}/pay`, { method: "POST" });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
       if (!res.ok) {
-        alert(data?.message || "Failed to initiate payment");
+        setPaymentNotice({
+          tone: "error",
+          message: data?.error || data?.message || `Could not start payment (HTTP ${res.status}).`,
+        });
         return;
       }
 
@@ -116,28 +232,21 @@ export default function OrderDetailPage() {
         name: "GrowthOS Payment",
         description: `Payment for Order ${order.id}`,
         order_id: data.razorpayOrderId,
-        handler: async (response: any) => {
-          try {
-            const verifyRes = await fetch("/api/merchant/payments", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                merchantOrderId: order.id,
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-              }),
-            });
-            const verifyData = await verifyRes.json();
-            if (!verifyRes.ok) {
-              alert(verifyData?.message || "Payment verification failed");
-            } else {
-              alert("Payment successful!");
-              await fetchOrder();
-            }
-          } catch (err) {
-            alert("Network error during verification");
-          }
+        handler: (response: any) => {
+          // Persist the payment identifiers BEFORE verifying so a failed
+          // round-trip can be retried without paying again.
+          pendingPaymentRef.current = {
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+          };
+          setHasPendingPayment(true);
+          void verifyPayment();
+        },
+        modal: {
+          ondismiss: () => {
+            setPaymentNotice({ tone: "info", message: "Payment cancelled." });
+          },
         },
         prefill: {
           name: "GrowthOS Demo",
@@ -149,6 +258,13 @@ export default function OrderDetailPage() {
       // @ts-ignore
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
+    } catch (err) {
+      setPaymentNotice({
+        tone: "error",
+        message: err instanceof Error && err.message.includes("Razorpay")
+          ? "Could not load the Razorpay checkout. Check your connection and try again."
+          : "Could not start the payment. Please try again.",
+      });
     } finally {
       setPaying(false);
     }
@@ -165,10 +281,13 @@ export default function OrderDetailPage() {
     </div>;
   }
 
-  const payment = order.payments?.[0];
-  const paid = order && Array.isArray(order.payments)
-    ? order.payments.some((p: any) => p.status === "CAPTURED")
-    : false;
+  const payments: any[] = Array.isArray(order.payments) ? order.payments : [];
+  // Show the most recent payment, not an arbitrary one.
+  const payment = payments.length > 0
+    ? payments.reduce((latest, p) => (new Date(p.createdAt) > new Date(latest.createdAt) ? p : latest))
+    : undefined;
+  const paid = payments.some((p: any) => p.status === "CAPTURED");
+  const canRetryVerification = hasPendingPayment;
 
   return (
     <div className="space-y-6">
@@ -207,10 +326,22 @@ export default function OrderDetailPage() {
         <div className="p-4 bg-growthos-surface border border-growthos-border rounded-xl">
           <div className="text-growthos-muted text-sm">Payment</div>
           <div className="mt-1 text-growthos-text font-medium">{payment?.status || "No payment recorded"}</div>
+          {payment?.providerPaymentId && (
+            <div className="text-growthos-muted text-xs break-all">Razorpay: {payment.providerPaymentId}</div>
+          )}
           {paid && (
             <div className="mt-2 text-green-400 text-sm">Paid ✓</div>
           )}
-          {!paid && (
+          {!paid && canRetryVerification && (
+            <button
+              onClick={() => void verifyPayment()}
+              disabled={verifying}
+              className="mt-2 px-3 py-1.5 bg-growthos-accent text-white rounded-lg text-sm font-medium hover:bg-growthos-accent/80 disabled:opacity-50"
+            >
+              {verifying ? "Verifying..." : "Retry verification"}
+            </button>
+          )}
+          {!paid && !canRetryVerification && (
             <button
               onClick={handlePayNow}
               disabled={paying}
@@ -218,6 +349,19 @@ export default function OrderDetailPage() {
             >
               {paying ? "Processing..." : "Pay via Razorpay"}
             </button>
+          )}
+          {paymentNotice && (
+            <div
+              className={`mt-2 text-sm ${
+                paymentNotice.tone === "error"
+                  ? "text-red-400"
+                  : paymentNotice.tone === "success"
+                    ? "text-green-400"
+                    : "text-growthos-muted"
+              }`}
+            >
+              {paymentNotice.message}
+            </div>
           )}
         </div>
       </div>

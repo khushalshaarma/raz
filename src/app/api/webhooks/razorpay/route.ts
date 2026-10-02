@@ -44,12 +44,37 @@ export async function POST(request: NextRequest) {
     await processPaymentEvent(payload);
     await processOrderEvent(payload);
     await processAIBuyerOutcome(payload);
+    await advanceOrderOnCapturedPayment(payload);
 
     return NextResponse.json({ status: "ok", message: result.message });
   } catch (error) {
     console.error("Webhook processing error:", error);
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
+}
+
+/**
+ * Advance the application Order once Razorpay reports a captured payment.
+ *
+ * Reached only for signature-verified events (the route returns early
+ * otherwise). Matches the payment via its persisted providerPaymentId, so an
+ * unrelated or forged event cannot move an order.
+ */
+async function advanceOrderOnCapturedPayment(payload: any) {
+  const payment = extractPaymentFromWebhook(payload);
+  if (!payment || payment.status !== "captured") return;
+  if (!payment.id) return;
+
+  const localPayment = await prisma.payment.findFirst({
+    where: { providerPaymentId: payment.id },
+    select: { orderId: true, status: true },
+  });
+  if (!localPayment) return;
+
+  await prisma.order.updateMany({
+    where: { id: localPayment.orderId, status: "PENDING" },
+    data: { status: "CONFIRMED" },
+  });
 }
 
 async function processAIBuyerOutcome(payload: any) {

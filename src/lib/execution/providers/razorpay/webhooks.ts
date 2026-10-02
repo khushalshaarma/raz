@@ -129,6 +129,74 @@ export async function processWebhookEvent(
   }
 
   if (!payment) {
+    // Reconciliation: a signature-verified webhook can recover a payment whose
+    // browser verification round-trip failed, provided we can attribute the
+    // provider payment to an application order. Attribution uses the Razorpay
+    // order id recorded on the Order at checkout initiation; this is the same
+    // authoritative mapping the verification route enforces.
+    if (signatureVerified && providerPaymentId && paymentEntity?.order_id) {
+      const order = await prisma.order.findFirst({
+        where: { razorpayOrderId: paymentEntity.order_id },
+        select: { id: true, merchantId: true, totalMinor: true, currency: true, status: true },
+      });
+
+      if (order) {
+        // Guard against a concurrent browser verification having created the
+        // record between our earlier lookup and here.
+        const raced = await prisma.payment.findFirst({
+          where: { providerPaymentId },
+          select: { id: true, merchantId: true, status: true },
+        });
+        if (raced) {
+          await prisma.webhookEvent.update({
+            where: { id: webhookEvent.id },
+            data: { merchantId: raced.merchantId, status: "PROCESSED", processedAt: new Date() },
+          });
+          return {
+            status: "PROCESSED",
+            message: `Payment ${raced.id} already recorded by concurrent verification`,
+            signatureVerified,
+          };
+        }
+
+        const providerStatus = paymentEntity?.status;
+        const nextStatus = canonicalPaymentStatus(providerStatus ?? "");
+
+        const [createdPayment] = await prisma.$transaction([
+          prisma.payment.create({
+            data: {
+              merchantId: order.merchantId,
+              orderId: order.id,
+              amountMinor: order.totalMinor,
+              currency: order.currency,
+              status: nextStatus,
+              provider: "razorpay",
+              providerPaymentId,
+            },
+          }),
+          prisma.webhookEvent.update({
+            where: { id: webhookEvent.id },
+            data: { merchantId: order.merchantId, status: "PROCESSED", processedAt: new Date() },
+          }),
+        ]);
+
+        // A reconciled capture must also advance the order, exactly as the
+        // browser verification path does.
+        if (nextStatus === "CAPTURED") {
+          await prisma.order.updateMany({
+            where: { id: order.id, status: "PENDING" },
+            data: { status: "CONFIRMED" },
+          });
+        }
+
+        return {
+          status: "PROCESSED",
+          message: `Reconciled missing payment ${createdPayment.id} for order ${order.id} (${nextStatus})`,
+          signatureVerified,
+        };
+      }
+    }
+
     await prisma.webhookEvent.update({
       where: { id: webhookEvent.id },
       data: { status: "UNHANDLED", processedAt: new Date() },

@@ -117,6 +117,11 @@ model Order {
   subtotalMinor  Int
   discountMinor  Int      @default(0)
   totalMinor     Int
+  // Razorpay order created for this application order at checkout initiation.
+  // Persisted so payment verification can prove that the razorpay_order_id the
+  // browser presents was actually minted for THIS order (and not for a
+  // different order of the same amount). Nullable for pre-existing rows.
+  razorpayOrderId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -128,6 +133,7 @@ model Order {
   @@index([merchantId])
   @@index([customerId])
   @@index([merchantId, status])
+  @@index([razorpayOrderId])
 }
 
 // ─── OrderItem ──────────────────────────────────────────────────────
