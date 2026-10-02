@@ -33,7 +33,7 @@ export default function OrderDetailPage() {
   // Mirrors the ref so the UI re-renders when a payment becomes pending.
   const [hasPendingPayment, setHasPendingPayment] = useState(false);
 
-  const fetchOrder = async () => {
+  const fetchOrder = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setError(null);
@@ -52,12 +52,11 @@ export default function OrderDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    fetchOrder();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    void fetchOrder();
+  }, [fetchOrder]);
 
   const allowedTargets = order ? STATUS_TRANSITIONS[order.status] || [] : [];
 
@@ -174,7 +173,7 @@ export default function OrderDetailPage() {
     } finally {
       setVerifying(false);
     }
-  }, [id]);
+  }, [id, fetchOrder]);
 
   async function handlePayNow() {
     if (!order || !id || paying) return;
