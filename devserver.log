@@ -1,0 +1,48 @@
+
+> growthos@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 4.5s
+ ○ Compiling /src/middleware ...
+ ✓ Compiled /src/middleware in 985ms (143 modules)
+ ✓ Compiled /api/system/health in 431ms (59 modules)
+ GET /api/system/health 200 in 2202ms
+ ○ Compiling /api/auth/login ...
+ ✓ Compiled /api/auth/login in 1260ms (130 modules)
+ POST /api/auth/login 200 in 3034ms
+ POST /api/auth/login 200 in 297ms
+ ✓ Compiled in 1570ms (346 modules)
+ ✓ Compiled in 295ms (346 modules)
+ ✓ Compiled in 82ms (346 modules)
+ ✓ Compiled in 89ms (346 modules)
+ ✓ Compiled in 247ms (346 modules)
+ ✓ Compiled in 755ms (346 modules)
+ ✓ Compiled in 189ms (346 modules)
+ ✓ Compiled in 78ms (346 modules)
+ ✓ Compiled in 72ms (346 modules)
+ ✓ Compiled in 72ms (346 modules)
+ ✓ Compiled in 62ms (346 modules)
+ ✓ Compiled in 71ms (346 modules)
+ ✓ Compiled in 928ms (346 modules)
+ ✓ Compiled in 193ms (346 modules)
+ ✓ Compiled in 86ms (346 modules)
+ ✓ Compiled in 107ms (346 modules)
+ ✓ Compiled in 106ms (346 modules)
+ ✓ Compiled in 92ms (346 modules)
+ ✓ Compiled in 74ms (346 modules)
+ ✓ Compiled in 120ms (346 modules)
+ ✓ Compiled in 304ms (346 modules)
+ ✓ Compiled in 80ms (346 modules)
+ ✓ Compiled in 73ms (346 modules)
+ ✓ Compiled in 69ms (346 modules)
+ ✓ Compiled in 89ms (346 modules)
+ ✓ Compiled in 65ms (346 modules)
+ ✓ Compiled in 77ms (346 modules)
+ ✓ Compiled in 59ms (346 modules)
+   Reload env: .env
+ ✓ Compiled in 97ms (346 modules)

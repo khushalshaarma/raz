@@ -1,0 +1,809 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── User & Authentication ───────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("CUSTOMER") // MERCHANT | CUSTOMER | ADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  merchant   Merchant?
+  customer   Customer?
+  auditLogs  AuditEvent[] @relation("ActorUser")
+}
+
+// ─── Merchant (Multi-Tenant Root) ────────────────────────────────────
+
+model Merchant {
+  id           String   @id @default(uuid())
+  ownerId      String   @unique
+  businessName String
+  email        String
+  currency     String   @default("INR")
+  timezone     String   @default("Asia/Kolkata")
+  status       String   @default("ACTIVE") // ACTIVE | SUSPENDED | INACTIVE
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  owner       User          @relation(fields: [ownerId], references: [id])
+  customers   Customer[]
+  products    Product[]
+  orders      Order[]
+  payments    Payment[]
+  campaigns   Campaign[]
+  opportunities Opportunity[]
+  agents      Agent[]
+  scenarios    Scenario[]
+  simulations Simulation[]
+  decisions   Decision[]
+  decisionOutcomes DecisionOutcome[]
+  strategyExperiments StrategyExperiment[]
+  actionRequests      ActionRequest[]
+  policies            Policy[]
+  governanceDecisions GovernanceDecision[]
+  auditLogs           AuditLog[]
+  auditEvents         AuditEvent[]
+  executions          Execution[]
+  growthCycles        GrowthCycle[]
+  agentRuns           AgentRun[]
+  agentMemories       AgentMemory[]
+  agentEvents         AgentEvent[]
+  webhookEvents       WebhookEvent[]
+  autopilotConfig     AutopilotConfig?
+}
+
+// ─── Customer ────────────────────────────────────────────────────────
+
+model Customer {
+  id         String   @id @default(uuid())
+  merchantId String
+  userId     String?  @unique // nullable for guest customers
+  name       String
+  email      String
+  phone      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  user     User?    @relation(fields: [userId], references: [id])
+  orders   Order[]
+
+  @@unique([merchantId, email])
+  @@index([merchantId])
+}
+
+// ─── Product ────────────────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(uuid())
+  merchantId  String
+  name        String
+  description String
+  priceMinor  Int      // Price in minor units (paise) e.g. 499900 = ₹4999.00
+  currency    String   @default("INR")
+  sku         String
+  category    String
+  stock       Int      @default(0)
+  imageUrl    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  orderItems OrderItem[]
+
+  @@unique([merchantId, sku])
+}
+
+// ─── Order ──────────────────────────────────────────────────────────
+
+model Order {
+  id             String   @id @default(uuid())
+  merchantId     String
+  customerId     String
+  status         String   @default("PENDING") // PENDING | CONFIRMED | CANCELLED | COMPLETED
+  currency       String   @default("INR")
+  subtotalMinor  Int
+  discountMinor  Int      @default(0)
+  totalMinor     Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  merchant   Merchant     @relation(fields: [merchantId], references: [id])
+  customer   Customer     @relation(fields: [customerId], references: [id])
+  items      OrderItem[]
+  payments   Payment[]
+
+  @@index([merchantId])
+  @@index([customerId])
+  @@index([merchantId, status])
+}
+
+// ─── OrderItem ──────────────────────────────────────────────────────
+
+model OrderItem {
+  id        String @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Int
+  priceMinor Int
+  totalMinor Int
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+// ─── Payment (Foundation Only) ──────────────────────────────────────
+
+model Payment {
+  id                String   @id @default(uuid())
+  merchantId        String
+  orderId           String
+  amountMinor       Int
+  currency          String   @default("INR")
+  status            String   @default("CREATED")
+  // CREATED | PENDING | AUTHORIZED | CAPTURED | FAILED | REFUNDED | UNKNOWN
+  provider          String   @default("razorpay")
+  providerPaymentId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  order    Order    @relation(fields: [orderId], references: [id])
+
+  @@index([merchantId])
+  @@index([orderId])
+  @@index([merchantId, status])
+}
+
+// ─── Campaign (Foundation Only) ──────────────────────────────────────
+
+model Campaign {
+  id             String   @id @default(uuid())
+  merchantId     String
+  name           String
+  status         String   @default("DRAFT")
+  // DRAFT | PENDING_APPROVAL | APPROVED | RUNNING | PAUSED | COMPLETED | FAILED
+  targetAudience String?
+  budgetMinor    Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+  @@index([merchantId, status])
+}
+
+// ─── Scenario ────────────────────────────────────────────────────────
+
+model Scenario {
+  id            String   @id @default(uuid())
+  merchantId    String
+  opportunityType String
+  strategyId    String
+  scenarioType  String // CONSERVATIVE | EXPECTED | OPTIMISTIC
+  eligibleCustomers Int
+  expectedConversionRate Float
+  expectedConversions Int
+  expectedRevenueMinor Int // paise
+  expectedCostMinor Int // paise
+  expectedNetImpactMinor Int // paise
+  expectedROI Float
+  confidence Float // 0-100
+  riskScore Int // 0-100
+  riskLevel String // LOW | MEDIUM | HIGH
+  downsideRevenueMinor Int // paise
+  downsideCostMinor Int // paise
+  downsideNetImpactMinor Int // paise
+  evidence String? // JSON
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+}
+
+// ─── Simulation ──────────────────────────────────────────────────────
+
+model Simulation {
+  id               String   @id @default(uuid())
+  merchantId       String
+  opportunityType  String
+  strategyId       String
+  strategyName     String
+  configSnapshot   String? // JSON
+  recommendedScenario String // CONSERVATIVE | EXPECTED | OPTIMISTIC
+  decisionScore    Int // 0-100
+  riskLevel        String // LOW | MEDIUM | HIGH
+  confidence       Int // 0-100
+  explanation      String?
+  baselineSnapshot String? // JSON
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  decisions Decision[] @relation("DecisionSimulation")
+}
+
+// ─── Decision ────────────────────────────────────────────────────────
+
+model Decision {
+  id              String   @id @default(uuid())
+  merchantId      String
+  simulationId    String?
+  opportunityType String
+  strategyId      String
+  strategyName    String
+  recommendedScenario String // CONSERVATIVE | EXPECTED | OPTIMISTIC
+  decisionScore   Int // 0-100
+  riskLevel       String // LOW | MEDIUM | HIGH
+  confidence      Int // 0-100
+  decisionCategory String // STRONG_RECOMMENDATION | RECOMMEND | LOW_CONFIDENCE_RECOMMENDATION | NO_CLEAR_WINNER | DO_NOT_ACT
+  explanation     String
+  evidence        String? // JSON
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  simulation Simulation? @relation("DecisionSimulation", fields: [simulationId], references: [id])
+  decisionOutcomes DecisionOutcome[]
+
+  @@index([merchantId])
+  @@index([merchantId, decisionCategory])
+}
+
+// ─── DecisionOutcome ────────────────────────────────────────────────
+
+model DecisionOutcome {
+  id                String   @id @default(uuid())
+  decisionId        String
+  merchantId        String
+  predictedScenario String // CONSERVATIVE | EXPECTED | OPTIMISTIC
+  predictedNetImpactMinor Int // paise
+  actualNetImpactMinor Int? // paise
+  absoluteError      Int? // paise
+  percentageError    Float? // 0-100
+  correctPrediction  Boolean
+  createdAt         DateTime @default(now())
+
+  decision Decision @relation(fields: [decisionId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+}
+
+// ─── StrategyExperiment ────────────────────────────────────────────
+
+model StrategyExperiment {
+  id              String   @id @default(uuid())
+  merchantId      String
+  opportunityType String
+  strategyId      String
+  strategyName    String
+  scenarioType    String // CONSERVATIVE | EXPECTED | OPTIMISTIC
+  predictedNetImpactMinor Int // paise
+  actualNetImpactMinor Int? // paise
+  predictionError  Int? // paise = |predicted - actual|
+  percentageError  Float? // 0-100
+  isCalibrated     Boolean   @default(false)
+  calibrationCount Int   @default(0)
+  createdAt        DateTime @default(now())
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+}
+
+// ─── Opportunity (Foundation Only) ─────────────────────────────────
+
+model Opportunity {
+  id                   String   @id @default(uuid())
+  merchantId           String
+  title                String
+  description          String
+  type                 String
+  // INACTIVE_CUSTOMERS | CART_ABANDONMENT | UPSELL | CROSS_SELL
+  // LOW_CONVERSION | PAYMENT_RECOVERY | HIGH_VALUE_CUSTOMER
+  estimatedRevenueMinor Int
+  confidence           Float    @default(0)
+  status               String   @default("DETECTED")
+  // DETECTED | REVIEWING | ACTIONED | DISMISSED | EXPIRED
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+  @@index([merchantId, status])
+  @@index([merchantId, type])
+}
+
+// ─── Governance (Phase 4 — Decision Intelligence) ──────────────────
+
+model ActionRequest {
+  id               String   @id @default(uuid())
+  merchantId       String
+  opportunityType  String
+  strategyId       String
+  strategyName     String
+  recommendedScenario String // CONSERVATIVE | EXPECTED | OPTIMISTIC
+  decisionScore    Int // 0-100
+  riskLevel        String // LOW | MEDIUM | HIGH
+  confidence       Int // 0-100
+  status           String // PENDING | APPROVED | BLOCKED | EXECUTED | EXPIRED
+  reason           String? // why was it blocked/approved
+  evidence         String? // JSON snapshot of scenario data
+  customerId       String?
+  // User id of whoever requested this action. Required for real four-eyes
+  // enforcement: an approver must not be the requester. Nullable because
+  // agent-originated requests (growth cycle / governance agent) have no human
+  // requester — those records must be treated as requiring an independent
+  // approver by role, not by identity.
+  requestedBy      String?
+  amountMinor      Int // 0-100
+  currency         String   @default("INR")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  governanceDecisions GovernanceDecision[] @relation("MerchantActionRequests")
+  executions          Execution[]
+
+  @@index([merchantId])
+  @@index([merchantId, status])
+  @@index([merchantId, requestedBy])
+}
+
+model Policy {
+  id               String   @id @default(uuid())
+  merchantId       String? // null = global, specific = merchant-scoped
+  name             String
+  version          Int      @default(1)
+  // CONDITION types: dataQuality, riskScore, confidenceScore, velocity, spend, customerSegment, custom
+  conditionType    String // DATA_QUALITY | RISK_SCORE | CONFIDENCE_SCORE | VELOCITY | SPEND | CUSTOMER_SEGMENT | CUSTOM
+  conditionOperator String // GTE | LTE | EQ | NEQ | GT | LT // e.g., "GTE" means "greater than or equal to"
+  conditionValue   Int // threshold value
+  // For CUSTOM conditions, the full rule expression
+  conditionExpression String? // JSON - full rule logic
+  action           String // ALLOW | BLOCK | REQUIRE_APPROVAL
+  priority         Int   @default(100) // lower = higher priority
+  isActive         Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id])
+  policyRules     PolicyRule[]
+}
+
+model PolicyRule {
+  id               String   @id @default(uuid())
+  policyId         String
+  ruleKey          String // e.g., "riskScore", "confidenceScore", "dataQuality", "velocity", "spend"
+  ruleOperator     String // GTE | LTE | EQ | NEQ | GT | LT
+  ruleValue        Int
+  isActive         Boolean @default(true)
+  createdAt        DateTime @default(now())
+
+  policy Policy @relation(fields: [policyId], references: [id])
+}
+
+model GovernanceDecision {
+  id               String   @id @default(uuid())
+  merchantId       String
+  actionRequestId  String
+  decision         String // ALLOW | BLOCK | REQUIRE_APPROVAL
+  decisionReason   String
+  riskLevel        String // LOW | MEDIUM | HIGH
+  confidence       Int // 0-100
+  approvedBy       String? // admin/merchant user id
+  approvedAt       DateTime?
+  // User id of whoever requested the action this decision governs. Mirrors
+  // ActionRequest.requestedBy so the four-eyes check can be enforced directly
+  // on the decision row (the approve/reject routes resolve a decision without
+  // having to re-join the action request). Nullable for the same reason.
+  requestedBy      String?
+  executedAt       DateTime?
+  status           String // PENDING | APPROVED | BLOCKED | EXECUTED | EXPIRED
+  evidence         String? // JSON
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  actionRequest ActionRequest @relation("MerchantActionRequests", fields: [actionRequestId], references: [id])
+  executions    Execution[]
+
+  @@index([merchantId])
+  @@index([merchantId, status])
+  @@index([merchantId, requestedBy])
+}
+
+model AuditLog {
+  id               String   @id @default(uuid())
+  merchantId       String? // null for system events
+  action           String
+  resourceType     String // ACTION_REQUEST | POLICY | GOVERNANCE_DECISION | SIMULATION | OPPORTUNITY | STRATEGY
+  resourceId       String
+  outcome          String // ALLOWED | BLOCKED | APPROVED | EXECUTED | EXPIRED
+  details          String? // JSON
+  severity         String   @default("INFO") // INFO | WARNING | ERROR | CRITICAL
+  createdAt        DateTime @default(now())
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+  @@index([merchantId, createdAt])
+  @@index([merchantId, severity])
+}
+
+// ─── Agent (Foundation Only) ─────────────────────────────────────────
+
+model Agent {
+  id          String   @id @default(uuid())
+  merchantId  String?
+  name        String
+  type        String
+  // OPPORTUNITY | STRATEGY | SIMULATION | DECISION | EXECUTION
+  // SECURITY | RELIABILITY | RECONCILIATION | LEARNING
+  status      String   @default("ACTIVE")
+  // ACTIVE | PAUSED | DISABLED
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+  @@index([type, status])
+}
+
+// ─── AuditEvent (Foundation Only) ───────────────────────────────────
+
+model AuditEvent {
+  id           String   @id @default(uuid())
+  merchantId   String?  // null for system events
+  actorType    String
+  // USER | MERCHANT | CUSTOMER | ADMIN | AGENT | SYSTEM
+  actorId      String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  metadata     String?  // JSON string for flexible data
+  severity     String   @default("INFO")
+  // INFO | WARNING | ERROR | CRITICAL
+  timestamp    DateTime @default(now())
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id])
+  actor    User?     @relation("ActorUser", fields: [actorId], references: [id])
+
+  @@index([merchantId])
+  @@index([merchantId, timestamp])
+  @@index([merchantId, action])
+}
+
+// ─── SystemHealth ───────────────────────────────────────────────────
+
+model SystemHealth {
+  id            String   @id @default(uuid())
+  application   String   @default("ok")
+  api           String   @default("ok")
+  database      String   @default("ok")
+  environment   String   @default("development")
+  lastCheckedAt DateTime @default(now())
+}
+
+// ─── Execution (Phase 5 — Real Execution) ────────────────────
+
+model Execution {
+  id                String   @id @default(uuid())
+  merchantId        String
+  governanceDecisionId String @default("")
+  actionRequestId   String @default("")
+  idempotencyKey    String?
+  actionType        String @default("UNKNOWN")
+  strategyId        String @default("")
+  amountMinor       Int @default(0)
+  currency          String   @default("INR")
+  status            String   @default("CREATED")
+  // CREATED | PREFLIGHT | READY | EXECUTING | SUBMITTED | PENDING | SUCCEEDED | FAILED | CANCELLED | EXPIRED | RECONCILING | RECONCILED | UNKNOWN
+  provider          String   @default("razorpay")
+  providerReference String?
+  failureCode       String?
+  failureReason     String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  merchant         Merchant @relation(fields: [merchantId], references: [id])
+  governanceDecision GovernanceDecision @relation(fields: [governanceDecisionId], references: [id])
+  actionRequest    ActionRequest @relation(fields: [actionRequestId], references: [id])
+  executionAttempts ExecutionAttempt[]
+  reconciliation   Reconciliation?
+
+  @@unique([merchantId, idempotencyKey])
+  @@index([merchantId])
+  @@index([merchantId, status])
+}
+
+// ─── ExecutionAttempt ────────────────────────────────────────
+
+model ExecutionAttempt {
+  id              String   @id @default(uuid())
+  executionId     String
+  attemptNumber   Int
+  provider        String
+  requestHash     String?
+  idempotencyKey  String?
+  providerReference String?
+  status          String   @default("PENDING")
+  // PENDING | ACCEPTED | REJECTED | FAILED | UNKNOWN
+  responseCode    String?
+  failureCode     String?
+  failureReason   String?
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  execution Execution @relation(fields: [executionId], references: [id])
+}
+
+// ─── WebhookEvent ────────────────────────────────────────────
+
+model WebhookEvent {
+  id               String   @id @default(uuid())
+  provider         String   @default("razorpay")
+  eventId          String
+  eventType        String
+  // Denormalised merchant scope. Razorpay payloads identify the order, not the
+  // merchant, so the webhook handler resolves merchantId from the referenced
+  // order/customer before persisting. Kept nullable because an unmatched
+  // payload must still be recorded for forensics rather than dropped, and
+  // because rows written before this column existed cannot be back-filled.
+  // Rows with merchantId = null are system-wide and must never be counted in a
+  // merchant-scoped health metric.
+  merchantId       String?
+  payload          String // JSON
+  payloadHash      String?
+  signature        String?
+  signatureVerified Boolean @default(false)
+  receivedAt       DateTime @default(now())
+  processedAt      DateTime?
+  status           String   @default("PENDING")
+  // PENDING | VERIFIED | REJECTED | PROCESSED | DUPLICATE | UNHANDLED
+  retryCount       Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  merchant Merchant? @relation(fields: [merchantId], references: [id])
+
+  @@unique([provider, eventId])
+  @@index([status])
+  @@index([provider, status])
+  @@index([merchantId, status])
+  @@index([merchantId, createdAt])
+}
+
+// ─── Reconciliation ──────────────────────────────────────────
+
+model Reconciliation {
+  id                String   @id @default(uuid())
+  executionId       String
+  merchantId        String
+  provider          String   @default("razorpay")
+  providerReference String?
+  providerStatus    String?
+  growthOSStatus    String?
+  amountMinor       Int?
+  currency          String?
+  amountMatch       Boolean?
+  statusMatch       Boolean?
+  status            String   @default("PENDING")
+  mismatchReason    String?
+  resolvedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  execution Execution @relation(fields: [executionId], references: [id])
+
+  @@unique([executionId])
+  @@index([merchantId])
+  @@index([merchantId, status])
+}
+
+// ─── Phase 6: Agentic Closed-Loop Growth Operating System ────────
+
+model GrowthCycle {
+  id           String   @id @default(uuid())
+  merchantId   String
+  status       String   @default("CREATED")
+  // CREATED | OBSERVING | ANALYZING | STRATEGIZING | SIMULATING | DECIDING
+  // GOVERNING | WAITING_APPROVAL | EXECUTING | OBSERVING_RESULT | LEARNING
+  // COMPLETED | FAILED | BLOCKED
+  currentStep  String   @default("CREATED")
+  opportunityCount Int  @default(0)
+  strategyCount    Int  @default(0)
+  decisionCount    Int  @default(0)
+  executionCount   Int  @default(0)
+  blockReason  String?
+  failReason   String?
+  metadata     String?  // JSON
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  merchant   Merchant    @relation(fields: [merchantId], references: [id])
+  agentRuns  AgentRun[]
+  agentEvents AgentEvent[]
+
+  @@index([merchantId, status])
+}
+
+model AgentRun {
+  id           String   @id @default(uuid())
+  merchantId   String
+  growthCycleId String?
+  agentType    String
+  // OPPORTUNITY | STRATEGY | SIMULATION | DECISION | SECURITY | GOVERNANCE | EXECUTION | OBSERVATION | LEARNING
+  agentId      String?
+  status       String   @default("PENDING")
+  // PENDING | RUNNING | COMPLETED | FAILED | TIMEOUT | BLOCKED
+  input        String?  // JSON
+  output       String?  // JSON
+  error        String?
+  confidence   Float?
+  reasoningSummary String?
+  warnings     String?  // JSON array
+  startedAt    DateTime?
+  completedAt  DateTime?
+  durationMs   Int?
+  retryCount   Int      @default(0)
+  maxRetries   Int      @default(3)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+  growthCycle GrowthCycle? @relation(fields: [growthCycleId], references: [id])
+  tasks       AgentTask[]
+  messages    AgentMessage[]
+  proposals   AgentProposal[]
+
+  @@index([merchantId, growthCycleId])
+  @@index([agentType, status])
+}
+
+model AgentTask {
+  id           String   @id @default(uuid())
+  agentRunId   String
+  merchantId   String
+  taskType     String
+  status       String   @default("PENDING")
+  // PENDING | RUNNING | COMPLETED | FAILED | TIMEOUT
+  input        String?  // JSON
+  output       String?  // JSON
+  error        String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id])
+
+  @@index([agentRunId, status])
+}
+
+model AgentMessage {
+  id              String   @id @default(uuid())
+  merchantId      String
+  growthCycleId   String?
+  senderAgent     String
+  receiverAgent   String
+  messageType     String
+  // PROPOSAL | REQUEST | RESPONSE | EVENT | ERROR
+  payload         String   // JSON
+  agentRunId      String?
+  taskId          String?
+  timestamp       DateTime @default(now())
+
+  agentRun AgentRun? @relation(fields: [agentRunId], references: [id])
+
+  @@index([growthCycleId, senderAgent, receiverAgent])
+}
+
+model AgentProposal {
+  id              String   @id @default(uuid())
+  agentRunId      String
+  merchantId      String
+  proposalType    String
+  // OPPORTUNITY | STRATEGY | SIMULATION | DECISION | SECURITY | GOVERNANCE | EXECUTION | OBSERVATION | LEARNING
+  title           String
+  description     String
+  confidence      Float
+  riskLevel       String
+  financialImpact String?  // JSON with amountMinor, currency
+  evidence        String?  // JSON
+  status          String   @default("PROPOSED")
+  // PROPOSED | VALIDATED | ACCEPTED | REJECTED | EXPIRED
+  validationErrors String? // JSON array
+  createdAt       DateTime @default(now())
+
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id])
+
+  @@index([merchantId, proposalType, status])
+}
+
+model AgentMemory {
+  id           String   @id @default(uuid())
+  merchantId   String
+  memoryType   String
+  // SHORT_TERM | LONG_TERM | EXPERIMENT
+  category     String
+  // STRATEGY_PERFORMANCE | PREDICTION_ACCURACY | CUSTOMER_PATTERN | MERCHANT_PATTERN
+  key          String
+  value        String   // JSON
+  confidence   Float    @default(0)
+  accessCount  Int      @default(0)
+  lastAccessedAt DateTime?
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@unique([merchantId, memoryType, category, key])
+  @@index([merchantId, memoryType])
+}
+
+model AgentEvent {
+  id           String   @id @default(uuid())
+  merchantId   String
+  growthCycleId String?
+  eventType    String
+  // CYCLE_STARTED | OPPORTUNITY_FOUND | STRATEGY_GENERATED | SIMULATION_COMPLETED
+  // DECISION_MADE | SECURITY_CHECKED | GOVERNANCE_APPROVED | GOVERNANCE_BLOCKED
+  // APPROVAL_REQUESTED | EXECUTION_STARTED | EXECUTION_COMPLETED | EXECUTION_FAILED
+  // PAYMENT_OBSERVED | OUTCOME_RECORDED | LEARNING_COMPLETED | AGENT_FAILED
+  agentType    String?
+  agentRunId   String?
+  title        String
+  details      String?  // JSON
+  severity     String   @default("INFO")
+  // INFO | WARNING | ERROR | CRITICAL
+  timestamp    DateTime @default(now())
+
+  merchant    Merchant    @relation(fields: [merchantId], references: [id])
+  growthCycle GrowthCycle? @relation(fields: [growthCycleId], references: [id])
+
+  @@index([merchantId, growthCycleId, eventType])
+}
+
+model AutopilotConfig {
+  id                      String   @id @default(uuid())
+  merchantId              String   @unique
+  mode                    String   @default("OFF")
+  // OFF | REVIEW | LIMITED | FULL
+  maxDailySpendMinor      Int      @default(1000000) // ₹10,000
+  maxCampaignSpendMinor   Int      @default(500000)  // ₹5,000
+  maxCustomerSpendMinor   Int      @default(20000)   // ₹200
+  maxActionsPerHour       Int      @default(10)
+  maxActionsPerDay        Int      @default(50)
+  minimumConfidence       Int      @default(70)
+  maximumRisk             Int      @default(40)
+  approvalRequiredAboveMinor Int   @default(10000)   // ₹100
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+}

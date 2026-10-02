@@ -1,0 +1,7 @@
+src/app/merchant/strategies/[id]/page.tsx(45,5): error TS2657: JSX expressions must have one parent element.
+src/app/merchant/strategies/[id]/page.tsx(68,101): error TS1003: Identifier expected.
+src/app/merchant/strategies/[id]/page.tsx(68,119): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/app/merchant/strategies/[id]/page.tsx(68,121): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/app/merchant/strategies/[id]/page.tsx(70,13): error TS17002: Expected corresponding JSX closing tag for 'div'.
+src/app/merchant/strategies/[id]/page.tsx(98,5): error TS1005: ')' expected.
+src/app/merchant/strategies/[id]/page.tsx(99,3): error TS1109: Expression expected.
