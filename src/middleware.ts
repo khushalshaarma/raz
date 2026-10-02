@@ -14,7 +14,19 @@ const ROLE_ROUTES: Record<string, string[]> = {
   ADMIN: ["/admin", "/api/admin"],
 };
 
-const PUBLIC_ROUTES = ["/", "/login", "/register", "/api/auth/login", "/api/auth/register", "/api/system/health"];
+const PUBLIC_ROUTES = [
+  "/",
+  "/login",
+  "/register",
+  "/api/auth/login",
+  "/api/auth/register",
+  // Demo merchant entry. Public because it mints its own session from
+  // server-side configuration; the route itself refuses to run unless demo
+  // login is explicitly enabled and never in production. It stays subject to
+  // the API rate limiter below.
+  "/api/auth/demo",
+  "/api/system/health",
+];
 
 /**
  * Resolve the client address from the proxy headers a real deployment sets.

@@ -61,6 +61,18 @@ export function validateProductionConfig(): StartupCheck[] {
       : "OK",
   });
 
+  // The demo merchant shortcut must never be usable in production. The endpoint
+  // already hard-denies it, so this check is defence in depth: it surfaces a
+  // misconfigured environment instead of leaving it silently inert.
+  checks.push({
+    name: "demo-login-disabled",
+    passed: process.env.DEMO_LOGIN_ENABLED?.trim().toLowerCase() !== "true",
+    message:
+      process.env.DEMO_LOGIN_ENABLED?.trim().toLowerCase() === "true"
+        ? "DEMO_LOGIN_ENABLED is true in PRODUCTION - remove it (the endpoint refuses it, but it should not be configured)"
+        : "OK",
+  });
+
   return checks;
 }
 

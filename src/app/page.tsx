@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { RoleEntry } from "@/components/RoleEntry";
 
 export default function HomePage() {
   return (
@@ -28,29 +29,7 @@ export default function HomePage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 text-sm pt-8">
-          <Link
-            href="/merchant/dashboard"
-            className="p-4 rounded-lg border border-growthos-border hover:border-growthos-accent/50 transition-colors"
-          >
-            <div className="font-medium text-growthos-text">Merchant</div>
-            <div className="text-growthos-muted text-xs mt-1">Business dashboard</div>
-          </Link>
-          <Link
-            href="/customer/shop"
-            className="p-4 rounded-lg border border-growthos-border hover:border-growthos-accent/50 transition-colors"
-          >
-            <div className="font-medium text-growthos-text">Customer</div>
-            <div className="text-growthos-muted text-xs mt-1">Browse products</div>
-          </Link>
-          <Link
-            href="/admin"
-            className="p-4 rounded-lg border border-growthos-border hover:border-growthos-accent/50 transition-colors"
-          >
-            <div className="font-medium text-growthos-text">Admin</div>
-            <div className="text-growthos-muted text-xs mt-1">Platform overview</div>
-          </Link>
-        </div>
+        <RoleEntry />
       </div>
     </main>
   );
